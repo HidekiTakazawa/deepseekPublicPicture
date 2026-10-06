@@ -74,8 +74,29 @@
 </head>
 <body>
   <div id="app" v-cloak>
+    <!-- ライセンス認証モーダル (認証前のみ表示) -->
+    <div v-if="!isAuthenticated" class="modal-backdrop" style="z-index: 999999; background-color: #f0f2f5;">
+      <div class="modal-dialog" style="max-width: 500px; text-align: center; padding: 30px; background: #fff; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-radius: 10px;">
+        <h2 style="color: #4a90d9; margin-top: 0; font-size: 24px;">🔒 アプリのロック解除</h2>
+        <p style="margin-bottom: 20px;">ご利用にはライセンスキーが必要です。</p>
+        <input type="text" v-model="licenseKeyInput" placeholder="例: TEST-1234" 
+               style="width: 80%; padding: 12px; font-size: 18px; border: 1px solid #ccc; border-radius: 8px; margin: 20px 0; text-align: center; letter-spacing: 2px;">
+        <button @click="login" :disabled="isAuthenticating" 
+                style="background-color: #4a90d9; color: white; border: none; padding: 12px 30px; font-size: 18px; border-radius: 8px; cursor: pointer; font-weight: bold; width: 80%;">
+          {{ isAuthenticating ? '認証中...' : '利用開始' }}
+        </button>
+        <hr style="margin: 30px 0; border: 0; border-top: 1px solid #eee;">
+        <p style="color: #666; font-size: 14px;">キーをお持ちでない方はこちら</p>
+        <a href="https://stripe.com/jp" target="_blank" style="text-decoration: none;">
+          <button style="background-color: #6772E5; color: white; border: none; padding: 12px 20px; font-size: 16px; border-radius: 8px; cursor: pointer; font-weight: bold; width: 80%; margin-top: 10px;">
+            💳 利用権を購入する
+          </button>
+        </a>
+      </div>
+    </div>
+
     <!-- ヘッダー -->
-    <header class="app-header">
+    <header class="app-header" v-show="isAuthenticated">
       <div class="header-container">
         <div class="logo-section">
           <div class="app-icon">文</div>
@@ -104,12 +125,17 @@
             <span v-if="isDarkTheme">☀️</span>
             <span v-else>🌙</span>
           </button>
+
+          <!-- ログアウト -->
+          <button @click="logout" class="btn btn-outline" style="font-size: 0.82rem; padding: 0.4rem 0.8rem; margin-left: 0.5rem; color: #dc3545; border-color: #dc3545;" title="ライセンスキーを削除してログアウト">
+            ログアウト
+          </button>
         </div>
       </div>
     </header>
 
     <!-- メインコンテンツ -->
-    <main class="main-container">
+    <main class="main-container" v-show="isAuthenticated">
 
 
       <!-- メイングリッド (左: 画像 & 作文, 右: 単語 / 模範文 / 添削) -->
@@ -751,7 +777,7 @@
     </div>
 
     <!-- トースト通知コンテナ -->
-    <div class="toast-container">
+    <div class="toast-container" style="z-index: 9999999;">
       <div 
         v-for="toast in toasts" 
         :key="toast.id" 

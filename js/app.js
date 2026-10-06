@@ -21,6 +21,66 @@ createApp({
 
     // 状態管理
     const configGasUrl = (typeof CONFIG !== 'undefined' && CONFIG.GAS_URL) ? CONFIG.GAS_URL.trim() : '';
+    const configLicenseUrl = (typeof CONFIG !== 'undefined' && CONFIG.LICENSE_GAS_URL) ? CONFIG.LICENSE_GAS_URL.trim() : '';
+    const licenseGasUrl = ref(configLicenseUrl);
+
+    // ライセンス認証関連
+    const currentLicenseKey = ref(safeStorage.get('chineseAppLicenseKey', ''));
+    const licenseKeyInput = ref(currentLicenseKey.value);
+    const isAuthenticated = ref(!!currentLicenseKey.value);
+    const isAuthenticating = ref(false);
+
+    const login = async () => {
+      if (!licenseKeyInput.value.trim()) {
+        showToast('ライセンスキーを入力してください。', 'error');
+        return;
+      }
+      if (!licenseGasUrl.value) {
+        currentLicenseKey.value = licenseKeyInput.value;
+        safeStorage.set('chineseAppLicenseKey', currentLicenseKey.value);
+        isAuthenticated.value = true;
+        showToast('認証をスキップしました(サーバー未設定)', 'info');
+        return;
+      }
+      isAuthenticating.value = true;
+      try {
+        const response = await fetch(licenseGasUrl.value, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: JSON.stringify({ action: 'verifyLicense', licenseKey: licenseKeyInput.value }),
+          redirect: 'follow'
+        });
+        const data = await response.json();
+        if (data.error) {
+          alert("エラー: " + data.error);
+          showToast(data.error, 'error');
+          isAuthenticating.value = false;
+          return;
+        }
+        if (data.valid) {
+          currentLicenseKey.value = licenseKeyInput.value;
+          safeStorage.set('chineseAppLicenseKey', currentLicenseKey.value);
+          isAuthenticated.value = true;
+          showToast('認証に成功しました。', 'success');
+        } else {
+          alert("このライセンスキーは無効です。");
+          showToast("このライセンスキーは無効です。", 'error');
+        }
+      } catch (error) {
+        alert("通信エラー: " + error.message);
+        showToast('通信エラー: ' + error.message, 'error');
+      }
+      isAuthenticating.value = false;
+    };
+
+    const logout = () => {
+      currentLicenseKey.value = '';
+      licenseKeyInput.value = '';
+      safeStorage.remove('chineseAppLicenseKey');
+      isAuthenticated.value = false;
+      showToast('ログアウトしました。', 'info');
+    };
+
     const gasUrl = ref(configGasUrl);
     const isDarkTheme = ref(safeStorage.get('cn_photo_essay_theme') === 'dark');
     const isDemoMode = ref(!gasUrl.value);
@@ -420,7 +480,8 @@ createApp({
           fileId: currentImage.value.fileId || '',
           fileUrl: currentImage.value.fileUrl || '',
           forceReanalyze: !!forceReanalyze,
-          owner: nickname.value
+          owner: nickname.value,
+          licenseKey: currentLicenseKey.value
         };
 
         const response = await fetch(gasUrl.value, {
@@ -513,7 +574,8 @@ createApp({
           imageContext: imageContext,
           fileId: (currentImage.value && currentImage.value.fileId) ? currentImage.value.fileId : '',
           fileName: (currentImage.value && currentImage.value.name) ? currentImage.value.name : 'photo.jpg',
-          owner: nickname.value
+          owner: nickname.value,
+          licenseKey: currentLicenseKey.value
         };
 
         const response = await fetch(gasUrl.value, {
@@ -1138,7 +1200,14 @@ createApp({
       modelLevel,
       speakChinese,
       toasts,
-      printContent
+      printContent,
+
+      // 認証関連
+      isAuthenticated,
+      isAuthenticating,
+      licenseKeyInput,
+      login,
+      logout
     };
   }
 }).mount('#app');
