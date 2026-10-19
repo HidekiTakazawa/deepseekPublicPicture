@@ -361,32 +361,7 @@ body.dark-theme .app-header {
   margin-bottom: 1rem;
 }
 
-.sample-images-bar {
-  margin-top: 1rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border-color);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
 
-.sample-chip {
-  padding: 0.25rem 0.65rem;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-full);
-  cursor: pointer;
-  font-size: 0.75rem;
-  transition: var(--transition);
-}
-.sample-chip:hover {
-  border-color: var(--primary);
-  color: var(--primary);
-}
 
 .preview-container {
   position: relative;
