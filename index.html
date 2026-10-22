@@ -187,7 +187,12 @@
             <!-- 画像プレビュー -->
             <div v-else class="preview-wrapper">
               <div class="preview-container">
-                <img :src="currentImage.previewUrl" :alt="currentImage.name" class="preview-image">
+                <img 
+                  :src="currentImage.previewUrl" 
+                  :alt="currentImage.name" 
+                  class="preview-image"
+                  @error="handleImageError"
+                >
                 <div class="preview-overlay">
                   <button @click="$refs.fileInput.click()" class="btn-icon" style="background: rgba(0,0,0,0.6); color: white; border: none;" title="別の画像に変更">
                     🔄
@@ -785,8 +790,8 @@
   </div>
 
   <!-- アプリ設定ファイル -->
-  <script src="js/config.js?v=10"></script>
+  <script src="js/config.js?v=11"></script>
   <!-- アプリメインスクリプト -->
-  <script src="js/app.js?v=10"></script>
+  <script src="js/app.js?v=11"></script>
 </body>
 </html>

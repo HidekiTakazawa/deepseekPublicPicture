@@ -254,11 +254,24 @@ createApp({
           const mimeType = 'image/jpeg';
           const base64 = canvas.toDataURL(mimeType, 0.80);
 
+          // 画像Base64のクリーン部分からハッシュを計算（GAS側と同じ方式）
+          let cleanB64 = base64.replace(/^data:[^;]+;base64,/, '').replace(/\s/g, '');
+          let hashVal = 0;
+          let step = Math.max(1, Math.floor(cleanB64.length / 5000));
+          for (let i = 0; i < cleanB64.length; i += step) {
+            let char = cleanB64.charCodeAt(i);
+            hashVal = ((hashVal << 5) - hashVal) + char;
+            hashVal = hashVal & hashVal;
+          }
+          const imageHash = 'h_' + Math.abs(hashVal).toString(16) + '_len' + cleanB64.length;
+
           currentImage.value = {
             base64: base64,
             mimeType: mimeType,
             name: file.name,
-            previewUrl: base64
+            previewUrl: base64,
+            imageHash: imageHash,
+            owner: nickname.value
           };
 
           // 以前の解析結果をリセット
@@ -529,6 +542,11 @@ createApp({
         return;
       }
 
+      if (currentImage.value && !currentImage.value.fileId && !analysisData.value) {
+        showToast('先に「✨ AIで画像を解析」を行ってください', 'warning');
+        return;
+      }
+
       isCheckingEssay.value = true;
       activeTab.value = 'correction';
 
@@ -553,6 +571,7 @@ createApp({
           imageContext: imageContext,
           fileId: (currentImage.value && currentImage.value.fileId) ? currentImage.value.fileId : '',
           fileName: (currentImage.value && currentImage.value.name) ? currentImage.value.name : 'photo.jpg',
+          imageHash: (currentImage.value && currentImage.value.imageHash) ? currentImage.value.imageHash : '',
           owner: nickname.value,
           licenseKey: currentLicenseKey.value
         };
@@ -572,6 +591,8 @@ createApp({
             safeStorage.set('cn_photo_essay_ss_url', res.spreadsheetUrl);
           }
           showToast('✨ 作文の添削が完了し、スプレッドシートに保存しました！', 'success');
+          // 一覧の作文状態（作文ありバッジや点数）を静かに同期
+          fetchDriveFiles(true);
         } else {
           showToast(res.message || '添削に失敗しました', 'error');
         }
@@ -597,6 +618,27 @@ createApp({
           essayTextarea.value.focus();
         }
       });
+    };
+
+    // 画像読み込みエラー時のフォールバック処理 (Google Driveの別URL形式へ切り替え)
+    const handleImageError = (e) => {
+      if (!currentImage.value) return;
+      const fileId = currentImage.value.fileId;
+      if (!fileId) return;
+
+      const currentSrc = currentImage.value.previewUrl || '';
+      // 1. thumbnail?id=... が失敗した場合 -> lh3.googleusercontent.com/d/... を試す
+      if (currentSrc.includes('drive.google.com/thumbnail')) {
+        const fallbackUrl1 = `https://lh3.googleusercontent.com/d/${fileId}=w1000`;
+        currentImage.value.previewUrl = fallbackUrl1;
+        currentImage.value.base64 = fallbackUrl1;
+      } 
+      // 2. lh3 が失敗した場合 -> uc?export=view&id=... を試す
+      else if (currentSrc.includes('googleusercontent.com')) {
+        const fallbackUrl2 = `https://drive.google.com/uc?export=view&id=${fileId}`;
+        currentImage.value.previewUrl = fallbackUrl2;
+        currentImage.value.base64 = fallbackUrl2;
+      }
     };
 
     // 中国語音声読み上げ (Web Speech API)
@@ -910,6 +952,7 @@ createApp({
       activeTab,
       modelLevel,
       speakChinese,
+      handleImageError,
       toasts,
       printContent,
 
