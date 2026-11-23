@@ -136,6 +136,14 @@ createApp({
         document.body.classList.add('dark-theme');
       }
 
+      // iOS / Android 向けに音声リストを事前ロード
+      if (window.speechSynthesis) {
+        window.speechSynthesis.getVoices();
+        window.speechSynthesis.onvoiceschanged = () => {
+          window.speechSynthesis.getVoices();
+        };
+      }
+
       // GAS接続がある場合はスプレッドシート情報取得およびDrive履歴を読み込み
       if (gasUrl.value) {
         fetchAppInfo();
@@ -641,26 +649,201 @@ createApp({
       }
     };
 
-    // 中国語音声読み上げ (Web Speech API)
+    // ★共通部品（パターンB）：修正版 Web Speech API メイン ＋ エラー・未対応端末でオンライン音声へ自動フォールバック
+    const unlockAudioForMobile = () => {
+      if (!window._ttsAudio) {
+        window._ttsAudio = new Audio();
+      }
+      if (!window._audioUnlocked) {
+        const audio = window._ttsAudio;
+        if (audio.src && audio.src.indexOf('data:audio/wav') !== 0) {
+          window._audioUnlocked = true;
+          return;
+        }
+        audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+        const p = audio.play();
+        if (p !== undefined) {
+          p.then(() => {
+            if (audio.src && audio.src.indexOf('data:audio/wav') === 0) {
+              audio.pause();
+            }
+            window._audioUnlocked = true;
+          }).catch(() => {});
+        }
+      }
+    };
+
+    const getChineseVoice = () => {
+      if (!window.speechSynthesis) return null;
+      const voices = window.speechSynthesis.getVoices() || [];
+      if (voices.length === 0) return null;
+
+      const zhVoices = voices.filter(v => {
+        const lang = (v.lang || '').replace(/_/g, '-').toLowerCase();
+        return lang.startsWith('zh') || lang.startsWith('cmn') || /chinese|中国|中文|普通话|國語/i.test(v.name || '');
+      });
+      if (zhVoices.length === 0) return null;
+
+      const mainlandVoices = zhVoices.filter(v => {
+        const lang = (v.lang || '').replace(/_/g, '-').toLowerCase();
+        return lang.startsWith('zh-cn') || lang.startsWith('zh-hans') || lang.startsWith('cmn-hans');
+      });
+      const pool = mainlandVoices.length > 0 ? mainlandVoices : zhVoices;
+
+      return pool.find(v => /ting|yu-shu|li-mu|google|microsoft|samsung/i.test(v.name || ''))
+          || pool.find(v => v.localService)
+          || pool.find(v => v.default)
+          || pool[0];
+    };
+
+    const playOnlineChineseAudio = (text, rate = 0.85) => {
+      try {
+        if (!window._ttsAudio) {
+          window._ttsAudio = new Audio();
+        }
+        const audio = window._ttsAudio;
+        audio.pause();
+
+        // 模範作文など長文(120文字超)の場合も途切れないよう文単位に分割して連続再生
+        const rawChunks = text.length > 120
+          ? (text.match(/[^。！？!?.\n]+[。！？!?.\n]?/g) || [text])
+          : [text];
+        const chunks = rawChunks.map(c => c.trim()).filter(Boolean);
+        let currentIdx = 0;
+
+        const playChunk = (chunkText) => {
+          const googleUrl = 'https://translate.googleapis.com/translate_tts?ie=UTF-8&q=' + encodeURIComponent(chunkText) + '&tl=zh-CN&client=gtx';
+          const youdaoUrl = 'https://dict.youdao.com/dictvoice?audio=' + encodeURIComponent(chunkText) + '&le=zh';
+          let triedBackup = false;
+
+          const startPlay = (url) => {
+            audio.src = url;
+            audio.playbackRate = rate || 0.85;
+            const p = audio.play();
+            if (p !== undefined) {
+              p.catch(() => {
+                if (!triedBackup) {
+                  triedBackup = true;
+                  startPlay(youdaoUrl);
+                }
+              });
+            }
+          };
+
+          audio.onended = () => {
+            currentIdx++;
+            if (currentIdx < chunks.length) {
+              playChunk(chunks[currentIdx]);
+            }
+          };
+
+          audio.onerror = () => {
+            if (!triedBackup) {
+              triedBackup = true;
+              startPlay(youdaoUrl);
+            }
+          };
+
+          startPlay(googleUrl);
+        };
+
+        if (chunks.length > 0) {
+          playChunk(chunks[0]);
+        }
+      } catch (e) {
+        console.error('Online audio fallback error:', e);
+      }
+    };
+
+    // 中国語音声読み上げ (パターンB: 修正版 Web Speech API メイン ＋ 自動オンライン音声フォールバック)
     const speakChinese = (text) => {
-      if (!window.speechSynthesis) {
-        showToast('お使いのブラウザは音声合成に対応していません', 'warning');
+      const cleanText = String(text || '').trim();
+      if (!cleanText) return;
+      const rate = 0.85; // 学習者向けにややゆっくり
+
+      if (!window.speechSynthesis || window._webSpeechFailed) {
+        playOnlineChineseAudio(cleanText, rate);
         return;
       }
-      window.speechSynthesis.cancel(); // 前の音声を停止
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'zh-CN'; // 中国語 (普通話)
-      utterance.rate = 0.85;    // 学習者向けにややゆっくり
-      utterance.pitch = 1.0;
 
-      // 中国語対応の音声を探す
-      const voices = window.speechSynthesis.getVoices();
-      const zhVoice = voices.find(v => v.lang === 'zh-CN' || v.lang.startsWith('zh'));
-      if (zhVoice) {
-        utterance.voice = zhVoice;
+      const synth = window.speechSynthesis;
+      const voices = synth.getVoices() || [];
+      const zhVoice = getChineseVoice();
+
+      if (voices.length > 0 && !zhVoice) {
+        window._webSpeechFailed = true;
+        playOnlineChineseAudio(cleanText, rate);
+        return;
       }
 
-      window.speechSynthesis.speak(utterance);
+      unlockAudioForMobile();
+
+      if (synth.paused) {
+        synth.resume();
+      }
+
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.lang = 'zh-CN';
+      utterance.rate = rate;
+      utterance.pitch = 1.0;
+
+      if (zhVoice) {
+        utterance.voice = zhVoice;
+        if (zhVoice.lang) {
+          utterance.lang = zhVoice.lang;
+        }
+      }
+
+      const startTime = Date.now();
+      let started = false;
+      let fallbackTriggered = false;
+
+      const triggerFallback = () => {
+        if (fallbackTriggered) return;
+        fallbackTriggered = true;
+        window._webSpeechFailed = true;
+        playOnlineChineseAudio(cleanText, rate);
+      };
+
+      // Android等で Voice が存在しても onstart も onerror も発火せず無音で固まるケースに備え、500ms監視タイマーを作動
+      const watchdog = setTimeout(() => {
+        if (!started) {
+          triggerFallback();
+        }
+      }, 500);
+
+      utterance.onstart = () => {
+        started = true;
+        clearTimeout(watchdog);
+      };
+
+      utterance.onend = () => {
+        clearTimeout(watchdog);
+        const elapsed = Date.now() - startTime;
+        if (elapsed < 120) {
+          triggerFallback();
+        }
+      };
+
+      utterance.onerror = (e) => {
+        clearTimeout(watchdog);
+        const errName = (e && e.error) ? e.error : '';
+        if (errName === 'canceled' || errName === 'interrupted') {
+          return;
+        }
+        triggerFallback();
+      };
+
+      // ガベージコレクション（長文読み上げ途中のメモリ解放）対策
+      window._currentUttr = utterance;
+
+      if (!isIOS || synth.speaking) {
+        synth.cancel();
+      }
+      synth.speak(utterance);
     };
 
 
